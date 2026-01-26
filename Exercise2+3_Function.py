@@ -20,9 +20,10 @@ def print_factor(x):
     # Print a new line to make the output format cleaner
     print()
 
-# Test examples (to verify the function functionality)
-if __name__ == "__main__":
-    print_factor(12)   # Output: All positive factors of 12: 1 2 3 4 6 12 
-    print_factor(-8)   # Output: All positive factors of -8: 1 2 4 8 
-    print_factor(7)    # Output: All positive factors of 7: 1 7 
-    print_factor(0)    # Output: 0 has no factors
+# ------------------- Exercise 3: List Iteration -------------------
+# Write a program to find all factors of the numbers in the list l
+l = [52633, 8137, 1024, 999]
+
+# Apply the print_factor function to each number in the list
+for num in l:
+    print_factor(num)
