@@ -1,0 +1,11 @@
+# 忽略 Telegram 配置文件（包含敏感 Token）
+config.ini
+
+# 忽略 Python 运行产生的缓存文件
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 忽略 Python 虚拟环境文件夹（通用，匹配任意名为 venv 的文件夹）
+venv/
