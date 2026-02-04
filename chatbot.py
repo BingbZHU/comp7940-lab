@@ -7,6 +7,8 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
 import configparser
 import logging
+from ChatGPT_HKBU import ChatGPT
+gpt = None
 
 def main():
     # Configure logging so you can see initialization and error messages
@@ -22,6 +24,9 @@ def main():
     logging.info('INIT: Connecting the Telegram bot...')
     app = ApplicationBuilder().token(config['TELEGRAM']['ACCESS_TOKEN']).build()
 
+    global gpt
+    gpt = ChatGPT(config)
+
     # Register a message handler
     logging.info('INIT: Registering the message handler...')
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, callback))
@@ -31,11 +36,15 @@ def main():
     app.run_polling()
 
 async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # await update.message.reply_text(response)
     logging.info("UPDATE: " + str(update))
+    loading_message = await update.message.reply_text('Thinking...')
 
-    # send the echo back to the client
-    text = update.message.text.upper()
-    await update.message.reply_text(text)
+    # send the user message to the ChatGPT client
+    response = gpt.submit(update.message.text)
+
+    # send the response to the Telegram box client
+    await loading_message.edit_text(response)
 
 if __name__ == '__main__':
     main()
