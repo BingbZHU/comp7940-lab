@@ -21,9 +21,11 @@ jobs:
       - name: Deploy application
         run: |
           ssh -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
-          cd ~/chatbot_comp7940
+          cd ~/comp7940-lab 
           git pull origin main
-          # Restart chatbot inside venv
-          pkill -f "python chatbot.py" || true
-          nohup ~/chatbot_comp7940/venv/bin/python chatbot.py > app.log 2>&1 &
+          docker stop hogwarts-bot || true
+          docker rm hogwarts-bot || true
+          docker build -t hogwarts-guide-bot:latest .
+          docker run -d --name hogwarts-bot --restart=always -v $(pwd)/config.ini:/app/config.ini hogwarts-guide-bot:latest
+          docker image prune -f
           EOF
