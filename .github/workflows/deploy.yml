@@ -11,21 +11,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4  
+        uses: actions/checkout@v4
 
       - name: Auto Deploy to EC2 
-        uses: appleboy/ssh-action@v1.0.3  
+        uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.EC2_HOST }}    
-          username: ${{ secrets.EC2_USER }} 
-          key: ${{ secrets.EC2_KEY }}       
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_KEY }}
           port: 22
           script: |
-            
             cd ~/comp7940-lab
             git pull origin main
-            docker stop hogwarts-bot || true
-            docker rm hogwarts-bot || true
-            docker build -t hogwarts-guide-bot:latest .
-            docker run -d --name hogwarts-bot --restart=always -v $(pwd)/config.ini:/app/config.ini hogwarts-guide-bot:latest
+            # stop old container and start new one
+            docker-compose down
+            docker-compose up -d --build
+            # clean up old images
             docker image prune -f

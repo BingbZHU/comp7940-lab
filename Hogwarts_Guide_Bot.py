@@ -17,6 +17,24 @@ import logging
 from supabase import create_client, Client
 from HogwartsGPT import ChatGPT
 
+
+import redis
+import os
+
+# Redis (docker-compose)
+redis_host = os.getenv('REDIS_HOST', 'localhost')
+redis_port = os.getenv('REDIS_PORT', 6379)
+
+# Redis
+r = redis.Redis(host=redis_host, port=redis_port, db=0)
+
+# test
+try:
+    r.ping()
+    print("✅ Redis connected successfully")
+except Exception as e:
+    print(f"❌ Redis connection failed: {e}")
+
 # Global variables
 gpt = None
 supabase: Client = None
@@ -86,14 +104,23 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Auto-save new user to cloud database
     supabase.table('users').upsert({'user_id': user_id}).execute()
     
-    welcome_text = (
-        "🧙‍♂️ Welcome to Hogwarts Guide!\n"
-        "I can help you with:\n"
-        "📍 Campus navigation & routes\n"
-        "🎯 Send 'event' for house activities\n"
-        "🏠 /choose_house to select your house\n"
-        "🎮 /match to find housemates\n"
-    )
+    # 🚀
+    cache_key = "welcome_text"
+    cached_welcome = r.get(cache_key)
+    if cached_welcome:
+        welcome_text = cached_welcome.decode('utf-8')
+    else:
+        welcome_text = (
+            "🧙‍♂️ Welcome to Hogwarts Guide!\n"
+            "I can help you with:\n"
+            "📍 Campus navigation & routes\n"
+            "🎯 Send 'event' for house activities\n"
+            "🏠 /choose_house to select your house\n"
+            "🎮 /match to find housemates\n"
+        )
+        
+        r.set(cache_key, welcome_text)
+
     await update.message.reply_text(welcome_text)
 
 async def choose_house_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -109,14 +136,27 @@ async def choose_house_command(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def match_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    # Get user's house from cloud database
-    user_res = supabase.table('users').select('house_name').eq('user_id', user_id).execute()
+
+    cache_key = f"user_house_{user_id}"
+    cached_house = r.get(cache_key)
+    if cached_house:
+        user_house = cached_house.decode('utf-8') if cached_house != b'None' else None
+    else:
+        
+        user_res = supabase.table('users').select('house_name').eq('user_id', user_id).execute()
+        user_house = user_res.data[0]['house_name'] if user_res.data else None
+        # 24h=86400
+        r.setex(cache_key, 86400, user_house if user_house else "None")
     
-    if not user_res.data or not user_res.data[0]['house_name']:
+    if not user_house:
         await update.message.reply_text("❌ Please select your house first with /choose_house!")
         return
-    
-    user_house = user_res.data[0]['house_name']
+
+
+
+
+
+
     # Get ALL house members, EXCLUDE yourself
     members_res = supabase.table('users').select('user_id').eq('house_name', user_house).execute()
     housemates = [str(m['user_id']) for m in members_res.data if m['user_id'] != user_id]
@@ -138,9 +178,19 @@ async def match_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def events_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    # Get user's house
-    user_res = supabase.table('users').select('house_name').eq('user_id', user_id).execute()
-    user_house = user_res.data[0]['house_name'] if user_res.data and user_res.data[0]['house_name'] else None
+
+    cache_key = f"user_house_{user_id}"
+    cached_house = r.get(cache_key)
+    if cached_house:
+        user_house = cached_house.decode('utf-8') if cached_house != b'None' else None
+    else:
+        user_res = supabase.table('users').select('house_name').eq('user_id', user_id).execute()
+        user_house = user_res.data[0]['house_name'] if user_res.data else None
+        r.setex(cache_key, 86400, user_house if user_house else "None")
+
+
+
+
 
     # Filter events by house
     if user_house:
@@ -179,26 +229,39 @@ async def chat_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if "event" in user_message.lower() or "events" in user_message:
         
-        user_res = supabase.table('users').select('house_name').eq('user_id', user_id).execute()
-        user_house = user_res.data[0]['house_name'] if user_res.data and user_res.data[0]['house_name'] else None
+        cache_key = f"user_house_{user_id}"
+        cached_house = r.get(cache_key)
+        if cached_house:
+            user_house = cached_house.decode('utf-8') if cached_house != b'None' else None
+        else:
+            user_res = supabase.table('users').select('house_name').eq('user_id', user_id).execute()
+            user_house = user_res.data[0]['house_name'] if user_res.data else None
+            r.setex(cache_key, 86400, user_house if user_house else "None")
+
 
         if not user_house:
             await update.message.reply_text("Please choose your house first with /choose_house!")
             return
 
         # from Supabase events 
-        events = supabase.table('events').select('*').or_(
-            f'target_house.eq.{user_house},target_house.eq.ALL'
-        ).execute().data
+        cache_key = f"event_response_{user_house}"
+        cached_response = r.get(cache_key)
+        if cached_response:
+            text = cached_response.decode('utf-8')
+        else:
+            
+            events = supabase.table('events').select('*').or_(
+                f'target_house.eq.{user_house},target_house.eq.ALL'
+            ).execute().data
 
-        if not events:
-            await update.message.reply_text("No events for your house yet!")
-            return
-
-        
-        text = f"🎡 Events for {user_house}:\n\n"
-        for e in events[:3]:
-            text += f"📌 {e['title']}\n⏰ {e['event_time']}\n🔗 {e['link']}\n\n"
+            if not events:
+                text = "No events for your house yet!"
+            else:
+                text = f"🎡 Events for {user_house}:\n\n"
+                for e in events[:3]:
+                    text += f"📌 {e['title']}\n⏰ {e['event_time']}\n🔗 {e['link']}\n\n"
+            # 1h=3600
+            r.setex(cache_key, 3600, text)
         
         await update.message.reply_text(text)
         supabase.table('chat_logs').insert({
@@ -209,20 +272,30 @@ async def chat_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 
-
-
-
-
-
     # Loading message
     loading_message = await update.message.reply_text('🔮 The magic crystal ball is thinking...')
 
     # Get user's house for LLM
-    user_res = supabase.table('users').select('house_name').eq('user_id', user_id).execute()
-    user_house = user_res.data[0]['house_name'] if user_res.data else None
+    cache_key = f"user_house_{user_id}"
+    cached_house = r.get(cache_key)
+    if cached_house:
+        user_house = cached_house.decode('utf-8') if cached_house != b'None' else None
+    else:
+        user_res = supabase.table('users').select('house_name').eq('user_id', user_id).execute()
+        user_house = user_res.data[0]['house_name'] if user_res.data else None
+        r.setex(cache_key, 86400, user_house if user_house else "None")
+
 
     # Get LLM response
-    response = gpt.submit(user_message,user_house)
+    cache_key = f"llm_response_{user_message.lower()}_{user_house}"
+    cached_response = r.get(cache_key)
+    if cached_response:
+        response = cached_response.decode('utf-8')
+    else:
+        # GPT
+        response = gpt.submit(user_message,user_house)
+        # 1h=3600s
+        r.setex(cache_key, 3600, response)
 
     supabase.table('users').upsert({'user_id': user_id}).execute()
     
